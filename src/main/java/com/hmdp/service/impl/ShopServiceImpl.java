@@ -10,11 +10,13 @@ import com.hmdp.entity.Shop;
 import com.hmdp.mapper.ShopMapper;
 import com.hmdp.service.IShopService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.utils.CacheClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.security.auth.login.FailedLoginException;
 import java.util.concurrent.TimeUnit;
 
 import static com.hmdp.utils.RedisConstants.CACHE_SHOP_KEY;
@@ -33,61 +35,18 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
 
+    @Autowired
+    private CacheClient cacheClient;
+
     @Override
     public Result queryById(Long id) {
-        Shop shop = queryWithMutex(id);
+        Shop shop = cacheClient
+                .queryWithPassThrough(CACHE_SHOP_KEY, id, Shop.class, this::getById, CACHE_SHOP_TTL, TimeUnit.MINUTES);
+
         if (shop == null) {
             return Result.fail("店铺不存在");
         }
         return Result.ok(shop);
-    }
-
-    private Shop queryWithMutex(Long id) {
-        String key = CACHE_SHOP_KEY + id;
-        //1.缓存中查询
-        String shopJson = stringRedisTemplate.opsForValue().get(key);
-        //1.1如果有，直接返回
-        if (StrUtil.isNotBlank(shopJson)) {
-            return JSONUtil.toBean(shopJson, Shop.class);
-        }
-        //1.2如果为空，返回错误
-        if (shopJson != null) {
-            return null;
-        }
-        //2.缓存中没有，尝试获取锁
-        String lockKey = "lock:shop:" + id;
-        Shop shop = null;
-        try {
-            boolean isLock = tryLock(lockKey);
-            if (!isLock) {
-                Thread.sleep(20);
-                queryWithMutex( id);
-            }
-
-            shop = getById(id);
-
-            if (shop == null) {
-                stringRedisTemplate.opsForValue().set(key, "", CACHE_SHOP_TTL, TimeUnit.SECONDS);
-                return null;
-            }
-
-            stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(shop), CACHE_SHOP_TTL, TimeUnit.MINUTES);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } finally {
-            unLock(lockKey);
-        }
-        return shop;
-
-    }
-
-    private boolean tryLock(String key) {
-        Boolean flag = stringRedisTemplate.opsForValue().setIfAbsent(key, "1", 10, TimeUnit.SECONDS);
-        return BooleanUtil.isTrue(flag);
-    }
-
-    private void unLock(String key) {
-        stringRedisTemplate.delete(key);
     }
 
     @Override
