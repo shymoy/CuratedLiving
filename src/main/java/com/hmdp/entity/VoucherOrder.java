@@ -22,7 +22,7 @@ import java.time.LocalDateTime;
 @EqualsAndHashCode(callSuper = false)
 @Accessors(chain = true)
 @TableName("tb_voucher_order")
-public class VoucherOrder implements Serializable {
+public class VoucherOrder extends Voucher implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
